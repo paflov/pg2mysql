@@ -23,8 +23,8 @@ Boston, MA 02111-1307, USA.
 
 error_reporting(E_ALL & ~E_DEPRECATED);
 define ('PRODUCT',"pg2mysql");
-define ('VERSION',"1.9");
-define ('COPYRIGHT',"Lightbox Technologies Inc. http://www.lightbox.ca");
+define ('VERSION',"1.9#2017.01");
+define ('COPYRIGHT',"2011 Lightbox Technologies Inc. http://www.lightbox.ca | 2017 Edition: https://github.com/paflov/pg2mysql");
 
 //this is the default, it can be overridden here, or specified as the third parameter on the command line
 $config['engine']="MyISAM";
@@ -32,7 +32,7 @@ $config['engine']="MyISAM";
 function getfieldname($l)
 {
 	//first check if its in nice quotes for us
-	if(ereg("`(.*)`",$l,$regs))
+	if(preg_match("#`(.*)`#",$l,$regs))
 	{
 		if($regs[1])
 			return $regs[1];
@@ -40,7 +40,7 @@ function getfieldname($l)
 			return null;
 	}
 	//if its not in quotes, then it should (we hope!) be the first "word" on the line, up to the first space.
-	else if(ereg("([^\ ]*)",trim($l),$regs))
+	else if(preg_match("#([^\\ ]*)#",trim($l),$regs))
 	{
 		if($regs[1])
 			return $regs[1];
@@ -126,14 +126,14 @@ function pg2mysql_large($infilename,$outfilename) {
 
 }
 
-function pg2mysql(&$input, $header=true)
+function pg2mysql($input, $header=true)
 {
 	global $config;
 
 	if(is_array($input)) {
 		$lines=$input;
 	} else {
-		$lines=split("\n",$input);
+		$lines=explode("\n",$input);
 	}
 
 	if($header) {
@@ -161,7 +161,7 @@ function pg2mysql(&$input, $header=true)
 
 		if(substr($line,0,2)==");" && $in_create_table) {
 			$in_create_table=false;
-			$line=") TYPE={$config['engine']};\n\n";
+			$line=") ENGINE={$config['engine']};\n\n";
 
 			$output.=$tbl_extra;
 			$output.=$line;
@@ -182,38 +182,38 @@ function pg2mysql(&$input, $header=true)
 			$line=str_replace(" boolean"," bool",$line);
 			$line=str_replace(" bool DEFAULT true"," bool DEFAULT 1",$line);
 			$line=str_replace(" bool DEFAULT false"," bool DEFAULT 0",$line);
-			if(ereg(" character varying\(([0-9]*)\)",$line,$regs)) {
+			if(preg_match("# character varying\(([0-9]*)\)#",$line,$regs)) {
 				$num=$regs[1];
 				if($num<=255)
-					$line=ereg_replace(" character varying\([0-9]*\)"," varchar($num)",$line);
+					$line=preg_replace("# character varying\([0-9]*\)#"," varchar($num)",$line);
 				else
-					$line=ereg_replace(" character varying\([0-9]*\)"," text",$line);
+					$line=preg_replace("# character varying\([0-9]*\)#"," text",$line);
 			}
 			//character varying with no size, we will default to varchar(255)
-			if(ereg(" character varying",$line)) {
-				$line=ereg_replace(" character varying"," varchar(255)",$line);
+			if(preg_match("# character varying#",$line)) {
+				$line=preg_replace("# character varying#"," varchar(255)",$line);
 			}
 
-			if( 	ereg("DEFAULT \('([0-9]*)'::int",$line,$regs) ||
-				ereg("DEFAULT \('([0-9]*)'::smallint",$line,$regs) ||
-				ereg("DEFAULT \('([0-9]*)'::bigint",$line,$regs) 
+			if( 	preg_match("#DEFAULT \('([0-9]*)'::int#",$line,$regs) ||
+				preg_match("#DEFAULT \('([0-9]*)'::smallint#",$line,$regs) ||
+				preg_match("#DEFAULT \('([0-9]*)'::bigint#",$line,$regs)
 						) {
 				$num=$regs[1];
-				$line=ereg_replace(" DEFAULT \('([0-9]*)'[^ ,]*"," DEFAULT $num ",$line);
+				$line=preg_replace("# DEFAULT \('([0-9]*)'[^ ,]*#"," DEFAULT $num ",$line);
 			}
-			if(ereg("DEFAULT \(([0-9\-]*)\)",$line,$regs)) {
+			if(preg_match("#DEFAULT \(([0-9\-]*)\)#",$line,$regs)) {
 				$num=$regs[1];
-				$line=ereg_replace(" DEFAULT \(([0-9\-]*)\)"," DEFAULT $num ",$line);
+				$line=preg_replace("# DEFAULT \(([0-9\-]*)\)#"," DEFAULT $num ",$line);
 			}
-			$line=ereg_replace(" DEFAULT nextval\(.*\) "," auto_increment ",$line);
-			$line=ereg_replace("::.*,",",",$line);
-			$line=ereg_replace("::.*$","\n",$line);
-			if(ereg("character\(([0-9]*)\)",$line,$regs)) {
+			$line=preg_replace("# DEFAULT nextval\(.*\) #"," auto_increment ",$line);
+			$line=preg_replace("#::.*,#",",",$line);
+			$line=preg_replace("#::.*$#","\n",$line);
+			if(preg_match("#character\(([0-9]*)\)#",$line,$regs)) {
 				$num=$regs[1];
 				if($num<=255)
-					$line=ereg_replace(" character\([0-9]*\)"," varchar($num)",$line);
+					$line=preg_replace("# character\([0-9]*\)#"," varchar($num)",$line);
 				else
-					$line=ereg_replace(" character\([0-9]*\)"," text",$line);
+					$line=preg_replace("# character\([0-9]*\)#"," text",$line);
 			}
 			//timestamps
 			$line=str_replace(" timestamp with time zone"," timestamp",$line);
@@ -346,8 +346,10 @@ function pg2mysql(&$input, $header=true)
 		}
 
 		//while we're here, we might as well catch CREATE INDEX as well
-		if(substr($line,0,12)=="CREATE INDEX") {
-			preg_match('/CREATE INDEX "?([a-zA-Z0-9_]*)"? ON "?([a-zA-Z0-9_]*)"? USING btree \((.*)\);/',$line,$matches);
+
+		if ((substr($line,0,12)=="CREATE INDEX") or
+			(substr($line,0,19)=="CREATE UNIQUE INDEX")) {
+			preg_match('/CREATE U?N?I?Q?U?E? INDEX "?([a-zA-Z0-9_]*)"? ON "?([a-zA-Z0-9_]*)"? USING btree \((.*)\);/',$line,$matches);
 			$indexname=$matches[1];
 			$tablename=$matches[2];
 			$columns=$matches[3];
